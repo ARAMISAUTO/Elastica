@@ -41,6 +41,15 @@ class Connection extends Param
      */
     const CONNECT_TIMEOUT = 0;
 
+    /** @var bool  */
+    protected $isAlive = false;
+
+    /** @var int  */
+    private $lastPing = 0;
+
+    /** @var int  */
+    private $failedPings = 0;
+
     /**
      * Creates a new connection object. A connection is enabled by default.
      *
@@ -297,6 +306,28 @@ class Connection extends Param
     }
 
     /**
+     * @return bool
+     */
+    public function isAlive()
+    {
+        return $this->isAlive;
+    }
+
+    public function markAlive()
+    {
+        $this->failedPings = 0;
+        $this->isAlive = true;
+        $this->lastPing = time();
+    }
+
+    public function markDead()
+    {
+        $this->isAlive = false;
+        $this->failedPings += 1;
+        $this->lastPing = time();
+    }
+
+    /**
      * @param \Elastica\Connection|array $params Params to create a connection
      *
      * @throws Exception\InvalidException
@@ -316,5 +347,37 @@ class Connection extends Param
         }
 
         return $connection;
+    }
+
+    public function performRequest($uri, $params = [], $method = Request::GET, $body = [])
+    {
+        $request = new Request($uri, $method, $body);
+        $transport = $this->getTransportObject();
+
+        return $transport->exec($request, $params);
+    }
+
+    /**
+     * @return bool
+     */
+    public function ping()
+    {
+        try {
+            $response = $this->performRequest('', [], 'HEAD');
+        } catch (\Exception $exception) {
+            $this->markDead();
+
+            return false;
+        }
+
+        if ($response->getStatus() < 400) {
+            $this->markAlive();
+
+            return true;
+        } else {
+            $this->markDead();
+
+            return false;
+        }
     }
 }
